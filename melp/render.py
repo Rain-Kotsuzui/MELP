@@ -78,6 +78,24 @@ class render:
                 colors=(1.0, 0.0, 0.0),
                 radius=0.03
             )
+            self.renderer.render_points(
+                name="Enorm",
+                points=Bubble[i].Enorm,
+                colors=(0.0, 1.0, 0.0),
+                radius=0.01
+            )
+            self.renderer.render_points(
+                name="Lnorm",
+                points=Bubble[i].Lnorm,
+                colors=(1.0, 0.0, 0.0),
+                radius=0.01
+            )
+        self.renderer.render_points(
+            name="center",
+            points=Bubble[i].center,
+            colors=(1.0, 0.0, 1.0),
+            radius=0.1
+        )
         self.renderer.end_frame()
 
     def running(self) -> bool:

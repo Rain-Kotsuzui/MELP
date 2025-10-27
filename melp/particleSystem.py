@@ -39,7 +39,7 @@ def init_LParticles(n: int, particles: wp.array(dtype=LParticle), Lposs: wp.arra
         p.pos = wp.vec3f(x, y, z) * (3.0+wp.sin(2.0*wp.pi* float(tid) / float(n - 1)))+ wp.vec3f(0.0, 5.0, 0.0)
         p.vel = wp.vec3f(0.0, 0.0, 0.0)
         p.mass = PARTICLE_MASS
-        p.surfactant = PARTICLE_SURFACTANT
+        p.c = PARTICLE_SURFACTANT
         p.volume = PARTICLE_VOLUME
         p.momentum = p.mass*p.vel
         p.alpha = 1.0
@@ -54,8 +54,14 @@ class ParticleSystem:
     LParticles: LParticle
     Eposs: wp.array
     Lposs: wp.array
+
+    Enorm: wp.array
+    Lnorm: wp.array
+
     n: int
     
+    center: wp.array
+
     Egrid: wp.HashGrid
     Lgrid: wp.HashGrid
 
@@ -71,6 +77,11 @@ class ParticleSystem:
         self.Egrid = wp.HashGrid(dim_x=128, dim_y=128, dim_z=128, device="cuda")
         self.Lgrid = wp.HashGrid(dim_x=128, dim_y=128, dim_z=128, device="cuda")
 
+        self.center = wp.zeros(1, dtype=wp.vec3f, device="cuda")
+
+        self.Enorm = wp.zeros(self.n, dtype=wp.vec3f, device="cuda")
+        self.Lnorm = wp.zeros(self.n, dtype=wp.vec3f, device="cuda")
+        
         self.init_particles()
         pass
 
@@ -86,6 +97,8 @@ class ParticleSystem:
 
         # hashgrid build
         self.hashBuild()
+        # normal build
+        self.normalBuild()
         # L2E ransfer
         self.L2E()
         # Geometry(Eparticles, LParticles, Eposs, Lposs, dt)
@@ -101,14 +114,20 @@ class ParticleSystem:
         # alpha compute
         wp.launch(getAlpha, dim=self.n, inputs=[self.Egrid.id,self.EParticles,self.LParticles,self.kernel_r], device="cuda")
         # m,c,V,p compute
-        wp.launch(getMCVP, dim=self.n, inputs=[self.Lgrid.id,self.EParticles,self.LParticles,self.kernel_r], device="cuda")
+        wp.launch(getMCVPA, dim=self.n, inputs=[self.Lgrid.id,self.EParticles,self.LParticles,self.kernel_r], device="cuda")
         pass
 
     def updateELposs(self) -> None:
         wp.launch(updateELposs, dim=self.n, inputs=[self.EParticles, self.Eposs], device="cuda")
         wp.launch(updateELposs, dim=self.n, inputs=[self.LParticles, self.Lposs], device="cuda")
         pass
-
+    
+    def normalBuild(self) -> None:
+        self.center.fill_(wp.vec3f(0.0, 0.0, 0.0))
+        wp.launch(centerCompute, dim=self.n, inputs=[self.n,self.EParticles, self.center], device="cuda")
+        wp.launch(PCAnormalBuild, dim=self.n, inputs=[wp.uint64(self.Lgrid.id),self.LParticles,self.center,self.kernel_r,self.Lnorm], device="cuda")
+        wp.launch(PCAnormalBuild, dim=self.n, inputs=[wp.uint64(self.Egrid.id),self.EParticles,self.center,self.kernel_r,self.Enorm], device="cuda")
+        pass
     def hashBuild(self) -> None:
         self.Egrid.build(points=self.Eposs, radius=self.kernel_r)
         self.Lgrid.build(points=self.Lposs, radius=self.kernel_r)
