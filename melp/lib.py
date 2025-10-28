@@ -8,6 +8,8 @@ PARTICLE_MASS = wp.constant(wp.float32(1.0))
 PARTICLE_VOLUME = wp.constant(wp.float32(4.0/3.0) * wp.pi * wp.pow(wp.float32(PARTICLE_RADIUS), wp.float32(3.0)))
 PARTICLE_SURFACTANT = wp.constant(wp.float32(1.0))
 
+PARTICLE_THICKNESS = wp.constant(wp.float32(0.001))
+
 INF_SMALL = wp.constant(wp.float32(1e-6))
 RADIUS = wp.constant(wp.float32(0.1))
 MASS = wp.constant(wp.float32(1.0))
