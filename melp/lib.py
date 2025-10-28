@@ -6,8 +6,8 @@ PARTICLE_COUNT = wp.constant(wp.int32(10000))
 PARTICLE_RADIUS = wp.constant(wp.float32(0.05))
 PARTICLE_MASS = wp.constant(wp.float32(1.0))
 PARTICLE_VOLUME = wp.constant(wp.float32(4.0/3.0) * wp.pi * wp.pow(wp.float32(PARTICLE_RADIUS), wp.float32(3.0)))
-PARTICLE_SURFACTANT = wp.constant(wp.float32(1.0))
-PARTICLE_THICKNESS = wp.constant(wp.float32(0.001))
+PARTICLE_SURFACTANT = wp.constant(wp.float32(0.3))
+PARTICLE_THICKNESS = wp.constant(wp.float32(1e-6))
 
 
 INF_SMALL = wp.constant(wp.float32(1e-6))
@@ -23,3 +23,5 @@ IDEAL_GAS_CONSTANT = wp.constant(wp.float32(8.31446261815324))
 
 ENV_TEMPERATURE = wp.constant(wp.float32(298.15))
 ENV_PRESSURE = wp.constant(wp.float32(101325.0))
+
+PURE_WATER_SURFACE_TENSION = wp.constant(wp.float32(0.072))

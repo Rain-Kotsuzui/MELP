@@ -176,6 +176,7 @@ class ParticleSystem:
         self.updateELposs()
         self.t += dt
         pass
+
     def EulerDynamics(self) -> None:
         # TODO
         self.bubble_volume.fill_(wp.float32(0.0))
