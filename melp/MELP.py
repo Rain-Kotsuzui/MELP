@@ -8,9 +8,9 @@ from .render import *
 
 wp.init()
 
-def MELP(N:int =BUBBLE_COUNT,n:int=PARTICLE_COUNT, frame:int=FRAME) -> None:
+def MELP(dt:float,N:int =BUBBLE_COUNT,n:int=PARTICLE_COUNT, frame:int=FRAME) -> None:
 
-    Bubble = [ParticleSystem(n) for _ in range(N)]
+    Bubble = [ParticleSystem(dt,n) for _ in range(N)]
     dt = 1.0 / float(frame)
     preview = render()
 

@@ -111,8 +111,6 @@ def getEgeometry(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), radius
 
         r = wp.length(vec_ij)
         if r > 1e-6:
-            u = wp.dot(vec_ij, e1)
-            v = wp.dot(vec_ij, e2)
             z = wp.dot(vec_ij, norm)
             grad_W = Poly6_2D_Grad(vec_ij,norm, radius)
 
@@ -133,6 +131,26 @@ def getEgeometry(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), radius
     Eparticles[tid].thickness = Eparticles[tid].volume*num_density
     Eparticles[tid].area = area
     pass
+
+
+# =========Euler Dynamics============
+@wp.kernel
+def bubbleVolume(center:wp.array(dtype=wp.vec3f),Eparticles: wp.array(dtype=EParticle),bubble_volume: wp.array(dtype=float),surface_area: wp.array(dtype=float)) -> None:  # type: ignore
+    tid = wp.tid()
+    p=Eparticles[tid].pos-center[0]
+    d=wp.length(p)
+    n=Eparticles[tid].normal
+    sign=-1.0
+    if wp.dot(n,p)>=0.0:
+        sign=1.0
+    bubble_volume[0]+=sign*Eparticles[tid].area*d/3.0
+    surface_area[0]+=Eparticles[tid].area
+    pass
+
+
+
+
+
 
 # ========E2L=========
 
@@ -225,6 +243,7 @@ def PCAnormalBuild(grid: wp.uint64, particles: wp.array(dtype=Any), view_point: 
 
 
 @wp.kernel
-def divCompute(particles: wp.array(dtype=LParticle), h: float) -> None:  # type: ignore
-    # TODO
+def deTest(debug: wp.array(dtype=wp.vec3f),Eparticles:wp.array(dtype=EParticle),time:float) -> None: # type: ignore
+    tid=wp.tid()
+    Eparticles[tid].pos=debug[tid]*(1.0+0.5*wp.sin(2.0*time))
     pass

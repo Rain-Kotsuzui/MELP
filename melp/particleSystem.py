@@ -6,7 +6,7 @@ import warp.math as wm
 
 
 @wp.kernel
-def init_EParticles(n: int, particles: wp.array(dtype=EParticle), Eposs: wp.array(dtype=wp.vec3f)):  # type: ignore
+def init_EParticles(n: int, particles: wp.array(dtype=EParticle), Eposs: wp.array(dtype=wp.vec3f),debug: wp.array(dtype=wp.vec3f)):  # type: ignore
     tid = wp.tid()
     if tid < n:
         p = particles[tid]
@@ -33,6 +33,7 @@ def init_EParticles(n: int, particles: wp.array(dtype=EParticle), Eposs: wp.arra
         p.h = wp.float32(0.0)
         p.g = wp.diag(wp.vec2f(1.0))
         Eposs[tid] = p.pos
+        debug[tid] = p.pos
         particles[tid] = p
     pass
 
@@ -49,15 +50,17 @@ def init_LParticles(n: int, particles: wp.array(dtype=LParticle), Lposs: wp.arra
         x = wp.cos(theta) * radius
         z = wp.sin(theta) * radius
 
-        p.pos = wp.vec3f(x, y, z) * (3.0+wp.sin(2.0*wp.pi *
-                                                float(tid) / float(n - 1))) + wp.vec3f(0.0, 5.0, 0.0)
+        # p.pos = wp.vec3f(x, y, z) * (3.0+wp.sin(2.0*wp.pi *
+        #                                         float(tid) / float(n - 1))) + wp.vec3f(0.0, 5.0, 0.0)
+        
+        p.pos = wp.vec3f(x, y, z) * 2.0 + wp.vec3f(0.0, 5.0, 0.0)
         p.vel = wp.vec3f(0.0)
         p.mass = PARTICLE_MASS
         p.c = PARTICLE_SURFACTANT
         p.volume = PARTICLE_VOLUME
         p.momentum = p.mass*p.vel
         p.thickness = PARTICLE_THICKNESS
-        
+
         p.b = wp.mat33f(0.0)
         p.d = wp.mat33f(0.0)
 
@@ -67,6 +70,15 @@ def init_LParticles(n: int, particles: wp.array(dtype=LParticle), Lposs: wp.arra
 
 
 class ParticleSystem:
+    n: int
+    t: wp.float32
+    dt: wp.float32
+    bubble_volume: wp.array
+    surface_area: wp.array
+    n0: wp.float32
+    T: wp.float32
+    p_in : wp.float32
+
     EParticles: EParticle
     LParticles: LParticle
     Eposs: wp.array
@@ -75,8 +87,6 @@ class ParticleSystem:
     Enorm: wp.array
     Lnorm: wp.array
 
-    n: int
-
     center: wp.array
 
     Egrid: wp.HashGrid
@@ -84,12 +94,17 @@ class ParticleSystem:
 
     kernel_r: wp.float32
 
-    def __init__(self, n: int, kernel_r: wp.float32 = KERNEL_RAIDUS) -> None:
+    debug: wp.array
+
+    def __init__(self,dt:float, n: int, kernel_r: wp.float32 = KERNEL_RAIDUS) -> None:
         self.n = int(n)
+        self.t= wp.float32(0.0)
+        self.dt = wp.float32(dt)
         self.kernel_r = kernel_r
         self.EParticles = wp.empty(self.n, dtype=EParticle, device="cuda")
         self.LParticles = wp.empty(self.n, dtype=LParticle, device="cuda")
         self.Eposs = wp.empty(self.n, dtype=wp.vec3f, device="cuda")
+        self.debug = wp.empty(self.n, dtype=wp.vec3f, device="cuda")
         self.Lposs = wp.empty(self.n, dtype=wp.vec3f, device="cuda")
 
         self.Egrid = wp.HashGrid(dim_x=128, dim_y=128,
@@ -102,12 +117,26 @@ class ParticleSystem:
         self.Enorm = wp.zeros(self.n, dtype=wp.vec3f, device="cuda")
         self.Lnorm = wp.zeros(self.n, dtype=wp.vec3f, device="cuda")
 
+        self.bubble_volume = wp.zeros(1, dtype=wp.float32, device="cuda")
+        self.surface_area = wp.zeros(1, dtype=wp.float32, device="cuda")
+        
+        self.T=ENV_TEMPERATURE
+        self.p_in = ENV_PRESSURE
         self.init_particles()
+
+        self.Geometry()
+        self.bubble_volume.fill_(wp.float32(0.0))
+        self.surface_area.fill_(wp.float32(0.0))
+        wp.launch(bubbleVolume, dim=self.n, inputs=[self.center,self.EParticles, self.bubble_volume,self.surface_area], device="cuda")
+        self.n0=self.bubble_volume.list()[0]*self.p_in/(self.T*IDEAL_GAS_CONSTANT)
+
         pass
 
     def init_particles(self) -> None:  # type: ignore
         wp.launch(init_EParticles, dim=self.EParticles.shape[0], inputs=[self.n,
-                  self.EParticles, self.Eposs], device="cuda")
+                  self.EParticles, self.Eposs,self.debug], device="cuda")
+        
+
         wp.launch(init_LParticles, dim=self.LParticles.shape[0], inputs=[self.n,
                   self.LParticles, self.Lposs], device="cuda")
         
@@ -126,29 +155,46 @@ class ParticleSystem:
 
         # hashgrid build
         self.hashBuild()
-        # get div,rot,laplacian
-        self.divCompute()
+        
         # L2E ransfer
         self.L2E()
-        # Geometry(Eparticles, LParticles, Eposs, Lposs, dt)
+        # Geometry
         self.Geometry()
-        # DynamicsWithEuler(Eparticles, LParticles, Eposs, Lposs, dt)
+        
+        # DynamicsWithEuler
+        self.EulerDynamics()
+
         # E2L(Eparticles, LParticles, Eposs, Lposs, dt)
 
         # ERedistribute(Eparticles, Eposs, dt)
         # Eadvance(Eparticles, Eposs, dt)
         # Ladvance(LParticles, Lposs, dt) and Lparticle nature update (momentum)
 
+        self.de()
+
         self.normalBuild()
         self.updateELposs()
+        self.t += dt
         pass
+    def EulerDynamics(self) -> None:
+        # TODO
+        self.bubble_volume.fill_(wp.float32(0.0))
+        self.surface_area.fill_(wp.float32(0.0))
+        wp.launch(bubbleVolume, dim=self.n, inputs=[self.center,self.EParticles, self.bubble_volume,self.surface_area], device="cuda")
+        self.p_in = self.n0*self.T*IDEAL_GAS_CONSTANT/self.bubble_volume
+
+        pass
+
+
+    def de(self) -> None:
+        # TODO
+        wp.launch(deTest, dim=self.n, inputs=[self.debug,self.EParticles, self.t], device="cuda")
+        pass
+
 
     def Geometry(self) -> None: 
-        # TODO thickness
-
-        pass
-    def divCompute(self) -> None:
-        # TODO
+        # TODO Lthickness
+        wp.launch(getEgeometry, dim=self.n, inputs=[self.Egrid.id,self.EParticles, self.kernel_r], device="cuda")
         pass
     def L2E(self) -> None:
         # alpha compute
