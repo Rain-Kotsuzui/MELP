@@ -22,13 +22,14 @@ class EParticle:
     h:wp.float32
     g:wp.mat22f    
 
+    external_force: wp.vec3f
+
 @wp.struct
 class LParticle:
     pos: wp.vec3f
     vel: wp.vec3f
     normal: wp.vec3f
 
-    thickness: wp.float32
     mass: wp.float32
     c: wp.float32
     volume: wp.float32

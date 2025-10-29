@@ -25,13 +25,16 @@ def init_EParticles(n: int, particles: wp.array(dtype=EParticle), Eposs: wp.arra
         p.c = wp.float32(0.0)
         p.volume = wp.float32(0.0)
         p.momentum = p.mass*p.vel
-        p.thickness = PARTICLE_THICKNESS
+        p.thickness = wp.float32(0.0)
 
         p.affine_momentum = wp.vec3f(0.0)
         p.num_density = wp.float32(0.5)
-        p.area = wp.float32(2.0)
+        p.area = wp.float32(0.0)
         p.h = wp.float32(0.0)
         p.g = wp.diag(wp.vec2f(1.0))
+        #TODO
+        p.external_force = GRIVATY
+
         Eposs[tid] = p.pos
         debug[tid] = p.pos
         particles[tid] = p
@@ -59,7 +62,6 @@ def init_LParticles(n: int, particles: wp.array(dtype=LParticle), Lposs: wp.arra
         p.c = PARTICLE_SURFACTANT
         p.volume = PARTICLE_VOLUME
         p.momentum = p.mass*p.vel
-        p.thickness = PARTICLE_THICKNESS
 
         p.b = wp.mat33f(0.0)
         p.d = wp.mat33f(0.0)
@@ -127,7 +129,7 @@ class ParticleSystem:
         self.Geometry()
         self.bubble_volume.fill_(wp.float32(0.0))
         self.surface_area.fill_(wp.float32(0.0))
-        wp.launch(bubbleVolume, dim=self.n, inputs=[self.center,self.EParticles, self.bubble_volume,self.surface_area], device="cuda")
+        wp.launch(bubbleVolume, dim=self.n, inputs=[self.EParticles, self.bubble_volume,self.surface_area], device="cuda")
         self.n0=self.bubble_volume.list()[0]*self.p_in/(self.T*IDEAL_GAS_CONSTANT)
 
         pass
@@ -170,7 +172,7 @@ class ParticleSystem:
         # Eadvance(Eparticles, Eposs, dt)
         # Ladvance(LParticles, Lposs, dt) and Lparticle nature update (momentum)
 
-        self.de()
+        #self.de()
 
         self.normalBuild()
         self.updateELposs()
@@ -178,12 +180,25 @@ class ParticleSystem:
         pass
 
     def EulerDynamics(self) -> None:
-        # TODO
+        # enclosed volume
         self.bubble_volume.fill_(wp.float32(0.0))
         self.surface_area.fill_(wp.float32(0.0))
-        wp.launch(bubbleVolume, dim=self.n, inputs=[self.center,self.EParticles, self.bubble_volume,self.surface_area], device="cuda")
+        wp.launch(bubbleVolume, dim=self.n, inputs=[self.EParticles, self.bubble_volume,self.surface_area], device="cuda")
+        # p_in
         self.p_in = self.n0*self.T*IDEAL_GAS_CONSTANT/self.bubble_volume
-
+        # solve gamma
+        ## get c1,c2,c3,b
+        c1 = wp.empty(self.n, dtype=wp.float32, device="cuda")
+        c2 = wp.empty(self.n, dtype=wp.vec3f, device="cuda")
+        c3 = wp.empty(self.n, dtype=wp.float32, device="cuda")
+        b = wp.empty(self.n, dtype=wp.float32, device="cuda")
+        wp.launch(getC1C2C3B, dim=self.n, inputs=[c1,c2,c3,b,self.EParticles,self.Egrid.id,self.kernel_r,self.dt])
+        ## relaxedJacobi
+        for _ in range(MAX_ITERATIONS):
+            wp.launch(RelaxedJacobi, dim=self.n, inputs=[self.Egrid.id,self.EParticles,c1,c2,c3,b,OMEGA,self.kernel_r], device="cuda")
+        
+        # TODO
+        
         pass
 
 

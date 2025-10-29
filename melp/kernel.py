@@ -138,17 +138,98 @@ def getEgeometry(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), radius
 
 # =========Euler Dynamics============
 @wp.kernel
-def bubbleVolume(center: wp.array(dtype=wp.vec3f), Eparticles: wp.array(dtype=EParticle), bubble_volume: wp.array(dtype=float), surface_area: wp.array(dtype=float)) -> None:  # type: ignore
+def bubbleVolume(Eparticles: wp.array(dtype=EParticle), bubble_volume: wp.array(dtype=float), surface_area: wp.array(dtype=float)) -> None:  # type: ignore
     tid = wp.tid()
-    p = Eparticles[tid].pos-center[0]
+    p = Eparticles[tid].pos
     d = wp.length(p)
     n = Eparticles[tid].normal
-    sign = -1.0
-    if wp.dot(n, p) >= 0.0:
-        sign = 1.0
-    bubble_volume[0] += sign*Eparticles[tid].area*d/3.0
+    bubble_volume[0] += wp.dot(n, p)*Eparticles[tid].area/3.0
     surface_area[0] += Eparticles[tid].area
     pass
+
+@wp.kernel
+def getC1C2C3B(c1: wp.array(dtype=wp.float32), c2: wp.array(dtype=wp.vec3f), c3: wp.array(dtype=wp.float32), b: wp.array(dtype=wp.float32), Eparticles: wp.array(dtype=EParticle), Egrid: wp.uint64, h: float,dt:float) -> None:  # type: ignore
+    i = wp.tid()
+    pi = Eparticles[i].pos
+    rhoi =Eparticles[i].mass/Eparticles[i].volume
+    ti= Eparticles[i].thickness
+    n= Eparticles[i].normal
+    vti= Eparticles[i].tvel
+    eFi= Eparticles[i].external_force
+
+    query = wp.hash_grid_query(Egrid, pi, h)
+    j = int(0)
+
+    c1[i] = -1.0/(dt*Eparticles[i].c)
+    c2[i] = wp.vec3f(0.0)
+    c3[i]=(dt*IDEAL_GAS_CONSTANT*ENV_TEMPERATURE/rhoi)/ti
+    b[i] = wp.float32(0.0)
+    b1=wp.float32(0.0)
+    b2=wp.float32(0.0)
+
+    while (wp.hash_grid_query_next(query, j)):
+        pj = Eparticles[j].pos
+        tj= Eparticles[j].thickness
+        rhoj = Eparticles[j].mass/Eparticles[j].volume
+        Aj= Eparticles[j].area
+        vtj= Eparticles[j].tvel
+        eFj=Eparticles[j].external_force
+
+        poly = Poly6_2D_Grad(pi-pj,n,h)
+
+        c2[i] += Aj*(1.0/tj+1.0/ti)*poly
+        b1+=wp.dot(vtj-vti,poly)*Aj
+        b2+=wp.dot(eFj/rhoj-eFi/rhoi,poly)*Aj
+    
+    b[i]=b1-1.0/dt+dt*b2
+    c2[i] *= dt*IDEAL_GAS_CONSTANT*ENV_TEMPERATURE/rhoi
+    pass
+
+# c1*C+c2*divC+c3*lapC=b
+@wp.kernel
+def RelaxedJacobi(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), c1: wp.array(dtype=wp.float32), c2: wp.array(dtype=wp.vec3f), c3: wp.array(dtype=wp.float32), b: wp.array(dtype=wp.float32), omega:wp.float32, radius: wp.float32) -> None:  # type: ignore
+    i = wp.tid()
+    pi = Eparticles[i].pos
+    query = wp.hash_grid_query(Egrid, pi,radius )
+    j = int(0)
+
+    gamma = Eparticles[i].c
+    d = getCoe(i, i, c1[i], c2[i], c3[i], Eparticles,Egrid,radius)
+
+    tem = float(0.0)
+    while (wp.hash_grid_query_next(query, j)):
+        if i != j:
+            tem += getCoe(i, j, c1[i], c2[i], c3[i], Eparticles,Egrid,radius)*Eparticles[j].c
+    
+    gamma = (b[i]-tem)/d
+    Eparticles[i].c = (1.0-omega)*Eparticles[i].c+omega*gamma
+
+    pass
+
+
+@wp.func
+def getCoe(i: int, j: int, c1: wp.float32, c2: wp.vec3f, c3: wp.float32, Eparticles: wp.array(dtype=EParticle),Egrid: wp.uint64,h:float) -> wp.float32:  # type: ignore
+    coe=wp.float32(0.0)
+    pi=Eparticles[i].pos
+    pj=Eparticles[j].pos
+    Aj=Eparticles[i].area
+    n=Eparticles[i].normal
+    if i == j:
+        q = wp.hash_grid_query(Egrid, pi,h )
+        j = int(0)
+        tem1=wp.vec3f(0.0)
+        tem2=wp.float32(0.0)
+        while (wp.hash_grid_query_next(q, j)):
+            if i == j:
+                continue
+            pj=Eparticles[j].pos
+            Aj=Eparticles[j].area
+            tem1+=Poly6_2D_Grad(pi-pj,n,h)*Aj
+            tem2+=Poly6_2D_Lap(pi-pj,n,h)*Aj
+        coe=c1+wp.dot(c2,tem1)-c3*tem2
+    else:
+        coe=wp.dot(c2,Poly6_2D_Grad(pi-pj,n,h))*Aj+c3*Poly6_2D_Lap(pi-pj,n,h)*Aj
+    return coe
 
 
 # ========E2L=========
