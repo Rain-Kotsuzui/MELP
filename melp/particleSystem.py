@@ -66,6 +66,7 @@ def init_LParticles(n: int, particles: wp.array(dtype=LParticle), Lposs: wp.arra
         p.b = wp.mat33f(0.0)
         p.d = wp.mat33f(0.0)
 
+        p.normal= wp.vec3f(0.0)
         Lposs[tid] = p.pos
         particles[tid] = p
     pass
@@ -163,20 +164,39 @@ class ParticleSystem:
         # Geometry
         self.Geometry()
         
-        # DynamicsWithEuler
-        self.EulerDynamics()
+        # DynamicsWithEuler 
+        # TODO bug!!!
+        #self.EulerDynamics()
 
         # E2L(Eparticles, LParticles, Eposs, Lposs, dt)
+        self.E2L()
 
-        # ERedistribute(Eparticles, Eposs, dt)
         # Eadvance(Eparticles, Eposs, dt)
+        #self.Eadv()
+        # TODO
+        ## ERedistribute(Eparticles, Eposs, dt)
+
         # Ladvance(LParticles, Lposs, dt) and Lparticle nature update (momentum)
+        self.Ladv()
 
         #self.de()
 
         self.normalBuild()
         self.updateELposs()
         self.t += dt
+        pass
+    
+    def Ladv(self) -> None:
+        wp.launch(Ladvance, dim=self.n, inputs=[self.LParticles, self.dt,self.Egrid.id,self.EParticles, self.kernel_r,self.Lnorm], device="cuda")
+        pass
+
+    def Eadv(self) -> None:
+        wp.launch(Eadvance, dim=self.n, inputs=[self.EParticles, self.dt], device="cuda")
+        wp.launch(getEgeometry, dim=self.n, inputs=[self.Egrid.id,self.EParticles, self.kernel_r], device="cuda")
+        pass
+
+    def E2L(self) -> None:
+        wp.launch(E2L, dim=self.n, inputs=[self.Egrid.id, self.EParticles, self.LParticles, self.kernel_r], device="cuda")
         pass
 
     def EulerDynamics(self) -> None:
@@ -185,7 +205,7 @@ class ParticleSystem:
         self.surface_area.fill_(wp.float32(0.0))
         wp.launch(bubbleVolume, dim=self.n, inputs=[self.EParticles, self.bubble_volume,self.surface_area], device="cuda")
         # p_in
-        self.p_in = self.n0*self.T*IDEAL_GAS_CONSTANT/self.bubble_volume
+        self.p_in = self.n0*self.T*IDEAL_GAS_CONSTANT/self.bubble_volume.list()[0]
         # solve gamma
         ## get c1,c2,c3,b
         c1 = wp.empty(self.n, dtype=wp.float32, device="cuda")
@@ -197,21 +217,15 @@ class ParticleSystem:
         for _ in range(MAX_ITERATIONS):
             wp.launch(RelaxedJacobi, dim=self.n, inputs=[self.Egrid.id,self.EParticles,c1,c2,c3,b,OMEGA,self.kernel_r], device="cuda")
         
-        # TODO
-        
+        # updateVelocity
+        wp.launch(updateEVelocity, dim=self.n, inputs=[self.Egrid.id,self.EParticles,self.kernel_r,ENV_PRESSURE,self.p_in,self.dt], device="cuda")
         pass
-
-
-    def de(self) -> None:
-        # TODO
-        wp.launch(deTest, dim=self.n, inputs=[self.debug,self.EParticles, self.t], device="cuda")
-        pass
-
 
     def Geometry(self) -> None: 
         # TODO Lthickness
         wp.launch(getEgeometry, dim=self.n, inputs=[self.Egrid.id,self.EParticles, self.kernel_r], device="cuda")
         pass
+
     def L2E(self) -> None:
         # alpha compute
         wp.launch(getAlpha, dim=self.n, inputs=[
@@ -232,8 +246,8 @@ class ParticleSystem:
         self.center.fill_(wp.vec3f(0.0))
         wp.launch(centerCompute, dim=self.n, inputs=[
                   self.n, self.EParticles, self.center], device="cuda")
-        wp.launch(PCAnormalBuild, dim=self.n, inputs=[wp.uint64(
-            self.Lgrid.id), self.LParticles, self.center, self.kernel_r, self.Lnorm], device="cuda")
+        #wp.launch(PCAnormalBuild, dim=self.n, inputs=[wp.uint64(
+        #    self.Lgrid.id), self.LParticles, self.center, self.kernel_r, self.Lnorm], device="cuda")
         wp.launch(PCAnormalBuild, dim=self.n, inputs=[wp.uint64(
             self.Egrid.id), self.EParticles, self.center, self.kernel_r, self.Enorm], device="cuda")
         pass
@@ -241,4 +255,11 @@ class ParticleSystem:
     def hashBuild(self) -> None:
         self.Egrid.build(points=self.Eposs, radius=self.kernel_r)
         self.Lgrid.build(points=self.Lposs, radius=self.kernel_r)
+        pass
+
+
+
+    def de(self) -> None:
+        # TODO
+        wp.launch(deTest, dim=self.n, inputs=[self.debug,self.EParticles, self.t], device="cuda")
         pass

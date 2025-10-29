@@ -14,7 +14,7 @@ INF_SMALL = wp.constant(wp.float32(1e-6))
 RADIUS = wp.constant(wp.float32(0.1))
 MASS = wp.constant(wp.float32(1.0))
 
-KERNEL_RAIDUS = wp.constant(wp.float32(0.2))
+KERNEL_RAIDUS = wp.constant(wp.float32(0.05))
 FRAME = wp.constant(wp.int32(1000))
 SUBSTEPS = wp.constant(wp.int32(5))
 
@@ -29,5 +29,5 @@ GRIVATY = wp.constant(wp.vec3f(0,-9.81,0))
 PURE_WATER_SURFACE_TENSION = wp.constant(wp.float32(0.072))
 
 # JACOBI
-MAX_ITERATIONS = wp.constant(wp.int32(10))
+MAX_ITERATIONS = wp.constant(wp.int32(2))
 OMEGA = wp.constant(wp.float32(0.3))

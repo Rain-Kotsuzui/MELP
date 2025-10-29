@@ -11,5 +11,6 @@ def dot(a:wp.array(dtype=wp.vec3f), b:wp.vec3f): #type: ignore
     a[0]=do(a[0], b)
     
 a = wp.vec3f(1,2,3)
-a *=2.0
-print(a)
+b= wp.outer(a,a)*a
+print(wp.outer(a,a))
+print(b)
