@@ -166,13 +166,13 @@ class ParticleSystem:
         
         # DynamicsWithEuler 
         # TODO bug!!!
-        #self.EulerDynamics()
+        self.EulerDynamics()
 
         # E2L(Eparticles, LParticles, Eposs, Lposs, dt)
         self.E2L()
 
         # Eadvance(Eparticles, Eposs, dt)
-        #self.Eadv()
+        # self.Eadv()
         # TODO
         ## ERedistribute(Eparticles, Eposs, dt)
 

@@ -29,5 +29,5 @@ GRIVATY = wp.constant(wp.vec3f(0,-9.81,0))
 PURE_WATER_SURFACE_TENSION = wp.constant(wp.float32(0.072))
 
 # JACOBI
-MAX_ITERATIONS = wp.constant(wp.int32(2))
+MAX_ITERATIONS = wp.constant(wp.int32(10))
 OMEGA = wp.constant(wp.float32(0.3))
