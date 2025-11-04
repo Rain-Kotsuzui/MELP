@@ -7,6 +7,7 @@ class EParticle:
     vel: wp.vec3f
     nvel: wp.vec3f
     tvel: wp.vec3f
+    Evel: wp.vec3f
 
     normal: wp.vec3f
 
@@ -22,7 +23,11 @@ class EParticle:
     h:wp.float32
     g:wp.mat22f    
 
+    reEvel:wp.vec3f
+    pseudo_pressure:wp.float32
     external_force: wp.vec3f
+
+    gradC: wp.vec3f
 
 @wp.struct
 class LParticle:

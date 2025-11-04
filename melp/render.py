@@ -2,7 +2,7 @@ import warp as wp
 import warp.render as wr
 from .particleSystem import *
 from typing import Any
-
+from .lib import *
 
 class render:
     renderer: wr.OpenGLRenderer
@@ -72,18 +72,18 @@ class render:
                 colors=(0.0, 1.0, 0.0),
                 radius=0.03
             )
-            self.renderer.render_points(
-                name="Lposs",
-                points=Bubble[i].Lposs,
-                colors=(1.0, 0.0, 0.0),
-                radius=0.03
-            )
             # self.renderer.render_points(
-            #     name="Enorm",
-            #     points=Bubble[i].Enorm,
-            #     colors=(0.0, 1.0, 0.0),
-            #     radius=0.01
+            #     name="Lposs",
+            #     points=Bubble[i].Lposs,
+            #     colors=(1.0, 0.0, 0.0),
+            #     radius=0.03
             # )
+            self.renderer.render_points(
+                name="Enorm",
+                points=Bubble[i].Enorm,
+                colors=(0.0, 1.0, 0.0),
+                radius=0.01
+            )
             self.renderer.render_points(
                 name="Lnorm",
                 points=Bubble[i].Lnorm,
