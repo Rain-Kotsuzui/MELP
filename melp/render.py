@@ -72,12 +72,12 @@ class render:
                 colors=(0.0, 1.0, 0.0),
                 radius=0.03
             )
-            # self.renderer.render_points(
-            #     name="Lposs",
-            #     points=Bubble[i].Lposs,
-            #     colors=(1.0, 0.0, 0.0),
-            #     radius=0.03
-            # )
+            self.renderer.render_points(
+                name="Lposs",
+                points=Bubble[i].Lposs,
+                colors=(1.0, 0.0, 0.0),
+                radius=0.03
+            )
             self.renderer.render_points(
                 name="Enorm",
                 points=Bubble[i].Enorm,

@@ -58,6 +58,7 @@ def getMCVPA(Lgrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), Lparticles
         inv_d = wp.inverse(Lneighbor.d)
 
         moment += coe*Lneighbor.momentum
+        # TODO bug
         # affine_moment += coe*Lneighbor.b*inv_d*proj_r
 
     Eparticles[tid].mass = mass
@@ -141,17 +142,17 @@ def getEgeometry(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), radius
 
 # =========Euler Dynamics============
 @wp.kernel
-def bubbleVolume(Eparticles: wp.array(dtype=EParticle), bubble_volume: wp.array(dtype=float), surface_area: wp.array(dtype=float), p_in: wp.array(dtype=float), n0: float, T: float) -> None:  # type: ignore
+def bubbleVolume(Eparticles: wp.array(dtype=EParticle), bubble_volume: wp.array(dtype=float), surface_area: wp.array(dtype=float)) -> None:  # type: ignore
     tid = wp.tid()
     p = Eparticles[tid].pos
-    d = wp.length(p)
     n = Eparticles[tid].normal
     bubble_volume[0] += wp.dot(n, p)*Eparticles[tid].area/3.0
     surface_area[0] += Eparticles[tid].area
-
-    p_in[0] = n0*T*IDEAL_GAS_CONSTANT/bubble_volume[0]
     pass
-
+@wp.kernel
+def pressure(p_in: wp.array(dtype=float), bubble_volume: wp.array(dtype=float), n0: float,T: float) -> None:  # type: ignore
+    p_in[0] =n0*IDEAL_GAS_CONSTANT*T/(bubble_volume[0]+1e-6)
+    pass
 
 @wp.kernel
 def getC1C2C3B(c1: wp.array(dtype=wp.float32), c2: wp.array(dtype=wp.vec3f), c3: wp.array(dtype=wp.float32), b: wp.array(dtype=wp.float32), Eparticles: wp.array(dtype=EParticle), Egrid: wp.uint64, h: float, dt: float) -> None:  # type: ignore
@@ -232,8 +233,7 @@ def updateEVelocity(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), rad
     neFi = wp.outer(n, n)*Eparticles[i].external_force
     teFi = Eparticles[i].external_force-neFi
 
-    #na=((p_in[0]-p_out+2.0*(PURE_WATER_SURFACE_TENSION-IDEAL_GAS_CONSTANT*ENV_TEMPERATURE*gammai)*h)/(rho*thick))*n+neFi/rho
-    na = ((p_in[0]-p_out)/(rho*thick))*n+neFi/rho
+    na=((p_in[0]-p_out+2.0*(PURE_WATER_SURFACE_TENSION-IDEAL_GAS_CONSTANT*ENV_TEMPERATURE*gammai)*h)/(rho*thick))*n+neFi/rho
 
     gradGamma = wp.vec3f(0.0)
     query = wp.hash_grid_query(Egrid, pi, radius)

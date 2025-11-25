@@ -113,7 +113,7 @@ class ParticleSystem:
         self.m = int(m)
         self.t = wp.float32(0.0)
         self.dt = wp.float32(dt)
-        self.dt_redistribute = wp.float32(dt/10.0)
+        self.dt_redistribute = wp.float32(dt/5.0)
 
         self.kernel_r = kernel_r
         self.EParticles = wp.empty(self.m, dtype=EParticle, device="cuda")
@@ -181,18 +181,17 @@ class ParticleSystem:
         # Geometry
         self.Geometry()
 
-        print(f"{(self.num_density_max-self.num_density_min)/self.num_density_averge}")
+        #print(f"{(self.num_density_max-self.num_density_min)/self.num_density_averge}")
         # DynamicsWithEuler
         self.EulerDynamics()
         # E2L(Eparticles, LParticles, Eposs, Lposs, dt)
-        # self.E2L()
+        #self.E2L()
 
         # Eadvance(Eparticles, Eposs, dt)
         self.Eadv()
-        # TODO
 
         # ERedistribute(Eparticles, Eposs, dt)
-        self.ERedistribute()
+        #self.ERedistribute()
 
         # Ladvance(LParticles, Lposs, dt) and Lparticle nature update (momentum)
         self.Ladv()
@@ -229,10 +228,9 @@ class ParticleSystem:
                       self.Egrid.id, self.EParticles, beta, self.dt_redistribute, self.kernel_r], device="cuda")
             self.Geometry()
 
-            print(
-                f"{(self.num_density_max-self.num_density_min)/self.num_density_averge}")
-            # print(f"{self.EParticles.list()[0]}")
-            # print(f"{1.0/beta.list()[0]}")
+            #print(f"{(self.num_density_max-self.num_density_min)/self.num_density_averge}")
+            print(f"{self.EParticles.list()[0]}")
+            #print(f"{1.0/beta.list()[0]}")
             pass
         wp.launch(apply_reEvel, dim=self.m, inputs=[
                   self.EParticles], device="cuda")
@@ -259,8 +257,8 @@ class ParticleSystem:
         self.bubble_volume.fill_(wp.float32(0.0))
         self.surface_area.fill_(wp.float32(0.0))
         wp.launch(bubbleVolume, dim=self.m, inputs=[
-                  self.EParticles, self.bubble_volume, self.surface_area, self.p_in, self.n0, self.T], device="cuda")
-
+                  self.EParticles, self.bubble_volume, self.surface_area], device="cuda")
+        wp.launch(pressure,dim=1, inputs=[self.p_in, self.bubble_volume, self.n0, self.T], device="cuda")
         # solve gamma
         # get c1,c2,c3,b
         c1 = wp.empty(self.m, dtype=wp.float32, device="cuda")
@@ -277,6 +275,9 @@ class ParticleSystem:
         # updateVelocity
         wp.launch(updateEVelocity, dim=self.m, inputs=[
                   self.Egrid.id, self.EParticles, self.kernel_r, ENV_PRESSURE, self.p_in, self.dt], device="cuda")
+        
+        print(f"p: {self.p_in.list()[0]-ENV_PRESSURE}, V: {self.bubble_volume.list()[0]}")
+
         pass
 
     def Geometry(self) -> None:
