@@ -59,7 +59,7 @@ def getMCVPA(Lgrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), Lparticles
 
         moment += coe*Lneighbor.momentum
         # TODO bug
-        # affine_moment += coe*Lneighbor.b*inv_d*proj_r
+        #affine_moment += coe*Lneighbor.b*inv_d*proj_r
 
     Eparticles[tid].mass = mass
     Eparticles[tid].c = c
@@ -108,24 +108,29 @@ def getEgeometry(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), radius
     num_density = wp.float32(0.0)
     area = wp.float32(0.0)
     while (wp.hash_grid_query_next(query, j)):
-        vec_ij = pEi-Eparticles[j].pos
+        Aj = Eparticles[j].area
+        vec_ij = Eparticles[j].pos-pEi
 
-        num_density += Poly6_2D(vec_ij, norm, radius)
+        num_density += Poly6_2D(-vec_ij, norm, radius)
 
         r = wp.length(vec_ij)
         if r > 1e-6:
             z = wp.dot(vec_ij, norm)
-            grad_W = Poly6_2D_Grad(vec_ij, norm, radius)
+            grad_W = Poly6_2D_Grad(-vec_ij, norm, radius)
 
             grad_W_u = wp.dot(grad_W, e1)
             grad_W_v = wp.dot(grad_W, e2)
 
             grad_z += wp.vec2(z * grad_W_u, z * grad_W_v)
-            lap_z += z * Poly6_2D_Lap(vec_ij, norm, radius)
+            #lap_z += z * Poly6_2D_Lap(vec_ij, norm, radius)
+            poly = wp.length(Poly6_2D_Grad(vec_ij, norm, radius))
+            d = wp.length(vec_ij)
+            lap_z += z*2.0*Aj*poly/d
 
-    Eparticles[tid].h = -0.5*lap_z/num_density
-    dz_du = grad_z[0]/num_density
-    dz_dv = grad_z[1]/num_density
+    Eparticles[tid].h = 0.5*lap_z
+    # 原论文符号有误！
+    dz_du = grad_z[0]
+    dz_dv = grad_z[1]
     Eparticles[tid].g = wp.mat22f(1.0+dz_du*dz_du, dz_du*dz_dv,
                                   dz_du*dz_dv, 1.0+dz_dv*dz_dv)
 
@@ -134,8 +139,8 @@ def getEgeometry(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), radius
     Eparticles[tid].thickness = Eparticles[tid].volume*num_density
     Eparticles[tid].area = area
 
-    num_density_max[0] = wp.max(num_density_max[0], num_density)
-    num_density_min[0] = wp.min(num_density_min[0], num_density)
+    wp.atomic_max(num_density_max,0, num_density)
+    wp.atomic_min(num_density_min,0, num_density)
     num_density_average[0] += num_density/wp.float32(Eparticles.shape[0])
     pass
 
@@ -193,7 +198,7 @@ def getC1C2C3B(c1: wp.array(dtype=wp.float32), c2: wp.array(dtype=wp.vec3f), c3:
         b2 += wp.dot(teFj/rhoj-teFi/rhoi, poly)*Aj
 
     b[i] = b1-1.0/dt+dt*b2
-    c2[i] *= dt*IDEAL_GAS_CONSTANT*ENV_TEMPERATURE/rhoi
+    c2[i] = c2[i]*dt*IDEAL_GAS_CONSTANT*ENV_TEMPERATURE/rhoi
     pass
 
 # c1*C+c2*divC+c3*lapC=b
@@ -206,7 +211,6 @@ def RelaxedJacobi(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), c1: w
     query = wp.hash_grid_query(Egrid, pi, radius)
     j = int(0)
 
-    gamma = Eparticles[i].c
     d = getCoe(i, i, c1[i], c2[i], c3[i], Eparticles, Egrid, radius)
 
     tem = float(0.0)
@@ -222,6 +226,16 @@ def RelaxedJacobi(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), c1: w
 
 
 @wp.kernel
+def applyExternalForce(Eparticles: wp.array(dtype=EParticle)) -> None:  # type: ignore
+    i = wp.tid()
+    Eparticles[i].external_force = wp.vec3f(0.0)
+    pass
+
+@wp.func
+def externalForce(p: wp.vec3f) -> wp.vec3f:
+    return wp.vec3f(0.0)
+
+@wp.kernel
 def updateEVelocity(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), radius: wp.float32, p_out: wp.float32, p_in: wp.array(dtype=float), dt: float) -> None:  # type: ignore
     i = wp.tid()
     pi = Eparticles[i].pos
@@ -233,7 +247,7 @@ def updateEVelocity(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle), rad
     neFi = wp.outer(n, n)*Eparticles[i].external_force
     teFi = Eparticles[i].external_force-neFi
 
-    na=((p_in[0]-p_out+2.0*(PURE_WATER_SURFACE_TENSION-IDEAL_GAS_CONSTANT*ENV_TEMPERATURE*gammai)*h)/(rho*thick))*n+neFi/rho
+    na=((p_in[0]-p_out+5000.0*2.0*(PURE_WATER_SURFACE_TENSION-IDEAL_GAS_CONSTANT*ENV_TEMPERATURE*gammai)*h)/(rho*thick))*n+neFi/rho
 
     gradGamma = wp.vec3f(0.0)
     query = wp.hash_grid_query(Egrid, pi, radius)
@@ -295,7 +309,7 @@ def init_redistribute(Eparticles: wp.array(dtype=EParticle)) -> None:  # type: i
 @wp.kernel
 def apply_reEvel(Eparticles: wp.array(dtype=EParticle)) -> None:  # type: ignore
     i = wp.tid()
-    Eparticles[i].Evel = Eparticles[i].Evel+Eparticles[i].reEvel
+    Eparticles[i].Evel = Eparticles[i].Evel+0.1*Eparticles[i].reEvel
 
 
 @wp.kernel
@@ -317,9 +331,9 @@ def redistribute(Egrid: wp.uint64, Eparticles: wp.array(dtype=EParticle),beta: w
 
     ta = -gradC/beta[0]
     Eparticles[i].reEvel = Eparticles[i].reEvel+dt*ta
-    Eparticles[i].pos += dt*Eparticles[i].reEvel
+    Eparticles[i].pos += 50.0*dt*Eparticles[i].reEvel
 
-    Eparticles[i].gradC = gradC
+    #Eparticles[i].gradC = gradC
     pass
 
 
@@ -346,11 +360,28 @@ def getCB(Eparticles:wp.array(dtype=EParticle),d_: wp.array(dtype=wp.float32),c:
         divEvel +=wp.dot( Poly6_2D_Grad(pi-pj, n, h)*Aj,tang_proj*(Evj-Evi))
         gradN +=Poly6_2D_Grad(pi-pj, n, h)*Aj*(dj-di)
 
-    beta[0] =wp.max(wp.length(gradN),beta[0])
+    beta[0] =wp.atomic_max(beta,0,wp.length(gradN))
     b[i] = d_[0]-(di-dt*di*divEvel)
 
     Eparticles[i].pseudo_pressure = wp.float32(0.0)
     pass
+
+@wp.kernel
+def getBeta(beta: wp.array(dtype=wp.float32),Egrid: wp.uint64,EParticles: wp.array(dtype=EParticle),radius: wp.float32) -> None:  # type: ignore
+    i = wp.tid()
+    pi = EParticles[i].pos
+    query = wp.hash_grid_query(Egrid, pi, radius)
+    j = int(0)
+    deltai=EParticles[i].num_density
+    gradDelta= wp.vec3f(0.0)
+    while (wp.hash_grid_query_next(query, j)):
+        pj = EParticles[j].pos
+        Aj = EParticles[j].area
+        deltaj=EParticles[j].num_density
+        gradDelta +=Poly6_2D_Grad(pi-pj, EParticles[i].normal, radius)*Aj*(deltaj-deltai)
+    wp.atomic_max(beta,0, wp.length(gradDelta))
+    pass
+
 
 # c*lapC=b
 
@@ -400,6 +431,11 @@ def Ladvance(Lparticles: wp.array(dtype=LParticle), dt: float, Egrid: wp.uint64,
     i = wp.tid()
     Lparticles[i].pos += dt*Lparticles[i].vel
     # TODO proj
+    #Ep=EParticles[i].pos
+    #Lparticles[i].pos=Ep
+# TODO 
+
+
     pL = Lparticles[i].pos
     query = wp.hash_grid_query(Egrid, pL, radius)
     j = int(0)
@@ -526,3 +562,21 @@ def getCoe(i: int, j: int, c1: wp.float32, c2: wp.vec3f, c3: wp.float32, Epartic
         d = wp.length(pi-pj)
         coe = wp.dot(c2, Poly6_2D_Grad(pi-pj, n, h))*Aj+c3*(2.0*poly/d)*Aj
     return coe
+
+
+@wp.kernel
+def debugGamma(debugGammamin: wp.array(dtype=wp.float32),debugGammamax: wp.array(dtype=wp.float32),Egrid: wp.uint64,Eparticles: wp.array(dtype=EParticle),radius: wp.float32) -> None:  # type: ignore
+    i = wp.tid()
+    # pi = Eparticles[i].pos
+    # query = wp.hash_grid_query(Egrid, pi, radius)
+    # j = int(0)
+
+    gamma = Eparticles[i].c
+    # while (wp.hash_grid_query_next(query, j)):
+    #     pj = Eparticles[j].pos
+    #     Aj = Eparticles[j].area
+    #     gammaj = Eparticles[j].c
+
+    wp.atomic_max(debugGammamax,0, gamma)
+    wp.atomic_min(debugGammamin,0, gamma)
+    pass

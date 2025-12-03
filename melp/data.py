@@ -27,7 +27,7 @@ class EParticle:
     pseudo_pressure:wp.float32
     external_force: wp.vec3f
 
-    gradC: wp.vec3f
+    #gradC: wp.vec3f
 
 @wp.struct
 class LParticle:

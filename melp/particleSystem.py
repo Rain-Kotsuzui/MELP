@@ -17,7 +17,7 @@ def init_EParticles(n: int, particles: wp.array(dtype=EParticle), Eposs: wp.arra
         x = wp.cos(theta) * radius
         z = wp.sin(theta) * radius
 
-        p.pos = wp.vec3f(x, y, z) * 2.0 + wp.vec3f(0.0, 5.0, 0.0)
+        p.pos = wp.vec3f(x*2.0, y*1.0, z*2.0)+ wp.vec3f(0.0, 5.0, 0.0)
         p.vel = wp.vec3f(0.0)
         p.nvel = wp.vec3f(0.0)
         p.tvel = wp.vec3f(0.0)
@@ -59,7 +59,8 @@ def init_LParticles(n: int, particles: wp.array(dtype=LParticle), Lposs: wp.arra
         # p.pos = wp.vec3f(x, y, z) * (3.0+wp.sin(2.0*wp.pi *
         #                                         float(tid) / float(n - 1))) + wp.vec3f(0.0, 5.0, 0.0)
 
-        p.pos = wp.vec3f(x, y, z) * 2.0 + wp.vec3f(0.0, 5.0, 0.0)
+        p.pos = wp.vec3f(x*2.0, y*1.0, z*2.0) + wp.vec3f(0.0, 5.0, 0.0)
+
         p.vel = wp.vec3f(0.0)
         p.mass = PARTICLE_MASS
         p.c = PARTICLE_SURFACTANT
@@ -185,13 +186,13 @@ class ParticleSystem:
         # DynamicsWithEuler
         self.EulerDynamics()
         # E2L(Eparticles, LParticles, Eposs, Lposs, dt)
-        #self.E2L()
+        self.E2L()
 
         # Eadvance(Eparticles, Eposs, dt)
         self.Eadv()
 
         # ERedistribute(Eparticles, Eposs, dt)
-        #self.ERedistribute()
+        self.ERedistribute()
 
         # Ladvance(LParticles, Lposs, dt) and Lparticle nature update (momentum)
         self.Ladv()
@@ -201,6 +202,7 @@ class ParticleSystem:
         # self.normalBuild()
         self.updateELposs()
         self.t += dt
+        print(f"t: {self.t:.2f}")
         pass
 
     def Ladv(self) -> None:
@@ -211,25 +213,31 @@ class ParticleSystem:
     def ERedistribute(self) -> None:
         wp.launch(init_redistribute, dim=self.m, inputs=[
                   self.EParticles], device="cuda")
-        while ((self.num_density_max-self.num_density_min)/self.num_density_averge).numpy()[0] > THRESHOLD:
+        i = 0
+        while (((self.num_density_max-self.num_density_min)/self.num_density_averge).numpy()[0] > 1.5) and i<10:
+            i += 1
             print(f"REDISTRIBUTE!")
             # TODO solve pseudo_pressure
             # get c,b
             c = wp.empty(self.m, dtype=wp.float32, device="cuda")
             b = wp.empty(self.m, dtype=wp.float32, device="cuda")
             beta = wp.zeros(1, dtype=wp.float32, device="cuda")
+            self.Geometry()
             wp.launch(getCB, dim=self.m, inputs=[self.EParticles, self.num_density_averge, c,
                       b, beta, self.EParticles, self.Egrid.id, self.kernel_r, self.dt_redistribute])
             for _ in range(MAX_ITERATIONS):
                 wp.launch(redistribute_RelaxedJacobi, dim=self.m, inputs=[
                           self.Egrid.id, self.EParticles, c, b, OMEGA, self.kernel_r], device="cuda")
+                
+            wp.launch(getBeta, dim=1, inputs=[beta, self.Egrid.id,self.EParticles,self.kernel_r], device="cuda")
+            #print(f"beta: {beta.list()[0]}")
 
             wp.launch(redistribute, dim=self.m, inputs=[
                       self.Egrid.id, self.EParticles, beta, self.dt_redistribute, self.kernel_r], device="cuda")
-            self.Geometry()
+            
 
-            #print(f"{(self.num_density_max-self.num_density_min)/self.num_density_averge}")
-            print(f"{self.EParticles.list()[0]}")
+            #print(f"{self.num_density_max} {self.num_density_min} {self.num_density_averge}")
+           # print(f"{self.EParticles.list()[0]}")
             #print(f"{1.0/beta.list()[0]}")
             pass
         wp.launch(apply_reEvel, dim=self.m, inputs=[
@@ -271,13 +279,31 @@ class ParticleSystem:
         for _ in range(MAX_ITERATIONS):
             wp.launch(RelaxedJacobi, dim=self.m, inputs=[
                       self.Egrid.id, self.EParticles, c1, c2, c3, b, OMEGA, self.kernel_r], device="cuda")
+        
+        # debugGammamax = wp.zeros(1, dtype=wp.float32, device="cuda")
+        # debugGammamin = wp.zeros(1, dtype=wp.float32, device="cuda")
+        # debugGammamin.fill_(wp.float32(1000.0))
+        # wp.launch(debugGamma, dim=self.m, inputs=[debugGammamin,debugGammamax,self.Egrid.id,self.EParticles,self.kernel_r], device="cuda")
+        # print(f"gamma min: {debugGammamin.list()[0]}, max: {debugGammamax.list()[0]}")
 
+        # apply external force
+        wp.launch(applyExternalForce, dim=self.m, inputs=[
+                  self.EParticles], device="cuda")
         # updateVelocity
         wp.launch(updateEVelocity, dim=self.m, inputs=[
                   self.Egrid.id, self.EParticles, self.kernel_r, ENV_PRESSURE, self.p_in, self.dt], device="cuda")
         
-        print(f"p: {self.p_in.list()[0]-ENV_PRESSURE}, V: {self.bubble_volume.list()[0]}")
-
+        #print(f"p: {self.p_in.list()[0]-ENV_PRESSURE}, V: {self.bubble_volume.list()[0]}")
+        # i=1000
+        # Ep=self.EParticles.list()[i]
+        # gammai =Ep.c
+        # h = Ep.h
+        # thick = Ep.thickness
+        # rho = Ep.mass/Ep.volume
+        # n = Ep.normal
+        # na=(self.p_in.list()[0]-ENV_PRESSURE+100.0*2.0*(PURE_WATER_SURFACE_TENSION-IDEAL_GAS_CONSTANT*ENV_TEMPERATURE*gammai)*h)/(rho*thick)
+        # print(f"{na}")
+        
         pass
 
     def Geometry(self) -> None:
@@ -285,10 +311,14 @@ class ParticleSystem:
         self.num_density_max.fill_(wp.float32(0.0))
         self.num_density_min.fill_(wp.float32(10.0*self.m))
         self.num_density_averge.fill_(wp.float32(0.0))
+        self.normalBuild()
+        self.hashBuild()
+
         wp.launch(getEgeometry, dim=self.m, inputs=[self.Egrid.id, self.EParticles, self.kernel_r,
                   self.num_density_max, self.num_density_min, self.num_density_averge], device="cuda")
-
-        self.normalBuild()
+        #print(f"{(self.num_density_max-self.num_density_min)/self.num_density_averge}")
+        
+        #print(f"{self.num_density_max} {self.num_density_min} {self.num_density_averge}")
         pass
 
     def L2E(self) -> None:
@@ -318,6 +348,7 @@ class ParticleSystem:
         pass
 
     def hashBuild(self) -> None:
+        self.updateELposs()
         self.Egrid.build(points=self.Eposs, radius=self.kernel_r)
         self.Lgrid.build(points=self.Lposs, radius=self.kernel_r)
         pass

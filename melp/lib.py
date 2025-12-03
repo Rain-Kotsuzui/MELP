@@ -6,7 +6,7 @@ PARTICLE_COUNT = wp.constant(wp.int32(10000))
 PARTICLE_RADIUS = wp.constant(wp.float32(0.05))
 PARTICLE_VOLUME = wp.constant(wp.float32(
     4.0/3.0) * wp.pi * wp.pow(wp.float32(PARTICLE_RADIUS), wp.float32(3.0)))
-PARTICLE_SURFACTANT = wp.constant(wp.float32(0.005))
+PARTICLE_SURFACTANT = wp.constant(wp.float32(5.0*1e-6))
 PARTICLE_THICKNESS = wp.constant(wp.float32(1e-6))
 PARTICLE_DENSITY = wp.constant(wp.float32(1000.0))
 PARTICLE_MASS = PARTICLE_DENSITY * PARTICLE_VOLUME
@@ -15,7 +15,7 @@ INF_SMALL = wp.constant(wp.float32(1e-6))
 RADIUS = wp.constant(wp.float32(0.1))
 MASS = wp.constant(wp.float32(1.0))
 
-KERNEL_RAIDUS = 12.0*PARTICLE_RADIUS
+KERNEL_RAIDUS = 4.0*PARTICLE_RADIUS
 FRAME = wp.constant(wp.int32(1000))
 SUBSTEPS = wp.constant(wp.int32(5))
 
@@ -31,7 +31,7 @@ PURE_WATER_SURFACE_TENSION = wp.constant(wp.float32(0.072))
 
 # JACOBI
 MAX_ITERATIONS = wp.constant(wp.int32(10))
-OMEGA = wp.constant(wp.float32(0.3))
+OMEGA = wp.constant(wp.float32(0.2))
 
 # REDISTRIBUTION
-THRESHOLD = wp.constant(0.4)
+THRESHOLD = wp.constant(0.6)
